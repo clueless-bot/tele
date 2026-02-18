@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "username" varchar(255) NOT NULL;

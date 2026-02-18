@@ -1,0 +1,1 @@
+ALTER TABLE "short_links" ADD COLUMN "title" text NOT NULL;

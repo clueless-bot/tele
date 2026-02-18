@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "verified" boolean DEFAULT 'false';

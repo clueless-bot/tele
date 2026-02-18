@@ -1,0 +1,23 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
+
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
+
+  server: {
+    host: true,          // 👈 VERY IMPORTANT for cloudflared
+    allowedHosts: [
+      '.trycloudflare.com',
+      'color-maintains-gentleman-reserve.trycloudflare.com',
+    ],
+  },
+})

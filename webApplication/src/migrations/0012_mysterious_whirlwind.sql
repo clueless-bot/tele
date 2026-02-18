@@ -1,0 +1,1 @@
+ALTER TABLE "uploads" RENAME COLUMN "thumbnail::bytea" TO "thumbnail";

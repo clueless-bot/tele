@@ -1,0 +1,1 @@
+ALTER TABLE "short_links" ALTER COLUMN "fileUrl" DROP NOT NULL;

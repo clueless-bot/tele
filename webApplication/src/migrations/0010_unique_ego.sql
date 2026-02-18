@@ -1,0 +1,1 @@
+-- ALTER TABLE "uploads" ALTER COLUMN "thumbnail" SET DATA TYPE bytea;

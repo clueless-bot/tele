@@ -1,0 +1,1 @@
+ALTER TABLE "uploads" ALTER COLUMN "input_link" SET DATA TYPE text;

@@ -1,0 +1,1 @@
+ALTER TABLE "uploads" ALTER COLUMN "customer_id" SET DATA TYPE text[];

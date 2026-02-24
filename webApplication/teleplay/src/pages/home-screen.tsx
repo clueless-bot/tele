@@ -43,7 +43,6 @@ export default function HomeScreen() {
     }
 
     const otp = generateOTP(); // Generate a dynamic OTP
-    setGeneratedOtp(otp); // Store OTP for verification
 
     const template_params = {
       to_email: forgotPasswordEmail, // Email entered by the user
@@ -96,8 +95,8 @@ export default function HomeScreen() {
       return;
     }
 
-    const otp = generateOTP(); // Generate a dynamic OTP
-    setGeneratedOtp(otp); // Store OTP for verification
+    const otp = generateOTP();
+    setGeneratedOtp(otp);
 
     try {
       const response = await fetch(`${import.meta.env.VITE_BASE_URL}/channel/create`, {
@@ -117,27 +116,20 @@ export default function HomeScreen() {
 
       const data = await response.json();
       if (response.ok) {
-        if (!formData.gmail) {
-          toast.error("Please enter a valid email.");
-          return;
-        }
-
-
         const template_params = {
-          to_email: formData.gmail, // Email entered by the user
+          to_email: formData.gmail,
           otp: otp,
         };
-        // Create Account OTP
         emailjs
           .send("service_lghivl5", "template_l2zrlw1", template_params, "E7SBsgZVS-99Rj3WP")
-          .then((response) => {
-            console.log("Email sent successfully:", response);
+          .then(() => {
             setTimeLeft(60);
             setCurrentScreen("email-verification");
+            toast.success("OTP sent to your email.");
           })
           .catch((error) => {
             console.error("Error sending email:", error);
-            toast.warning("Failed to send OTP. Please try again.");
+            toast.warning("Failed to send OTP email.");
           });
       } else {
         toast.error(data.message || "Error creating account.");
@@ -151,9 +143,32 @@ export default function HomeScreen() {
   // Resend OTP function
   const resendOTP = () => {
     const otp = generateOTP();
-    console.log(`New OTP sent to ${formData.gmail}: ${otp}`);
     setGeneratedOtp(otp);
     setTimeLeft(60);
+
+    const template_params = {
+      to_email: formData.gmail,
+      otp: otp,
+    };
+
+    emailjs
+      .send("service_lghivl5", "template_l2zrlw1", template_params, "E7SBsgZVS-99Rj3WP")
+      .then(async () => {
+        await fetch(`${import.meta.env.VITE_BASE_URL}/channel/forgotpassword`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: formData.gmail,
+            otp,
+          }),
+        });
+        toast.success("OTP resent to your email.");
+      })
+      .catch(() => {
+        toast.error("Failed to resend OTP.");
+      });
   };
 
   // Handle user login
@@ -237,11 +252,6 @@ export default function HomeScreen() {
   const goToLogin = () => setCurrentScreen("login");
   const goToCreateAccount = () => setCurrentScreen("create-account");
 
-  const goToEmailVerification = () => {
-    setTimeLeft(60);
-    setCurrentScreen("email-verification");
-  };
-  
   const goToForgotPassword = () => {
     setCurrentScreen("forgot-password");
   }
@@ -275,7 +285,6 @@ export default function HomeScreen() {
   }
 
   const handleVerifyEmailOTP = async () => {
-
     try {
       const response = await fetch(`${import.meta.env.VITE_BASE_URL}/otpVerification`, {
         method: "POST",
@@ -284,19 +293,18 @@ export default function HomeScreen() {
         },
         body: JSON.stringify({
           email: formData.gmail,
-          otp: emailOtp
+          otp: emailOtp,
         }),
       });
       if (response.status == 200) {
         toast.success("otp verification success")
         setCurrentScreen("login");
-
       }
     } catch (error) {
       console.error("Error:", error);
       toast.error("Something went wrong.");
     }
-  }
+  };
 
   const goToDashboard = () => setCurrentScreen("dashboard");
 
@@ -509,15 +517,18 @@ export default function HomeScreen() {
 
                 <p className="text-center">Time {formatTime()}</p>
 
-                {/* <div className="text-center">
-                  <button onClick={resendOTP} className="text-sm text-[#1a9bd7] hover:underline">
+                <div className="text-center">
+                  <button
+                    onClick={resendOTP}
+                    disabled={timeLeft > 0}
+                    className="text-sm text-[#1a9bd7] hover:underline disabled:text-gray-400"
+                  >
                     Resend OTP
                   </button>
-                </div> */}
+                </div>
 
                 <button
                   onClick={handleVerifyEmailOTP}
-
                   className="mt-4 w-full rounded-full bg-[#1a9bd7] hover:bg-[#6aa0b9] py-3 text-center font-bold text-white"
                 >
                   Verify & Create Account
@@ -634,4 +645,3 @@ export default function HomeScreen() {
     </div>
   )
 }
-

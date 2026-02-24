@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import ChannelLogin from './pages/channel-login'
 import ContentPage from './pages/content-page'
 import ChannelUploadEdit from './pages/channel-upload-edit'
@@ -27,6 +27,7 @@ function App() {
         <Route path="/channel-upload-edit" element={<EditPost/>} />
         <Route path="/channel-upload-success" element={<ChannelUploadSuccess />} />
         <Route path="/s/:code" element={<ShortLinkRedirect />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   )

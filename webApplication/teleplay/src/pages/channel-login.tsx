@@ -55,7 +55,10 @@ export default function ChannelLogin() {
   const toggleMobileMenu = () => setMobileMenuOpen(!mobileMenuOpen)
 
   const cookies = document.cookie;
-  const userCookieExists = cookies.includes('token'); // Replace 'user=' with your cookie name
+  const userCookieExists = cookies
+    .split(";")
+    .map((entry) => entry.trim())
+    .some((entry) => entry.startsWith("token="));
 
   return (
 <div>
@@ -64,4 +67,3 @@ export default function ChannelLogin() {
       </div>
   )
 }
-

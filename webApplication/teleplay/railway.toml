@@ -1,9 +1,9 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "corepack enable && pnpm install --frozen-lockfile && pnpm run build"
+buildCommand = "corepack enable && npm install --frozen-lockfile && npm run build"
 
 [deploy]
-startCommand = "pnpm run preview -- --host 0.0.0.0 --port $PORT"
+startCommand = "npm run preview -- --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

@@ -1,0 +1,100 @@
+{
+  "expo": {
+    "name": "teleplay",
+    "slug": "teleplay",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/images/logo.png",
+    "scheme": "teleplay",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "projectId": "563c684d-0460-4163-bb17-c06ffe29a007",
+    "ios": {
+      "supportsTablet": true,
+      "associatedDomains": [
+        "applinks:teleplay.in"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/logo.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-web-browser",
+      "expo-audio",
+      "expo-video",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos for QR scanning."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save videos to your gallery."
+        }
+      ]
+    ],
+
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.semilshah.teleplay",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "https",
+              "host": "teleplay.in",
+              "pathPrefix": "/s/"
+            },
+            {
+              "scheme": "teleplay"
+            },
+            {
+              "scheme": "exp+teleplay"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+
+    "extra": {
+      "BASE_URL": "https://unbedraggled-brenna-abatingly.ngrok-free.dev",
+      "GOOGLE_CLIENT_ID": "1094241667012-c6ffvs1jke5b2b0kcmkfmctbfk5me6ck.apps.googleusercontent.com",
+      "GOOGLE_ANDROID_CLIENT_ID": "1094241667012-c6ffvs1jke5b2b0kcmkfmctbfk5me6ck.apps.googleusercontent.com",
+      "router": {},
+      "eas": {
+        "projectId": "563c684d-0460-4163-bb17-c06ffe29a007"
+      }
+    },
+    "owner": "semilshah"
+  }
+}

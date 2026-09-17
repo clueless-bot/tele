@@ -4,15 +4,16 @@ import dotenv from 'dotenv';
 import path from 'path';
 import db from '../database/config.js';
 import { shortLinks } from '../database/schema.js';
-import { uploads } from '../database/schema.js';
-import { eq , sql, and, like } from 'drizzle-orm';
+import { uploads, watchHistory } from '../database/schema.js';
+import { eq, sql, and, like, desc } from 'drizzle-orm';
 import QRCode from 'qrcode';
 import { fileURLToPath } from 'url';
+import { spawn } from 'node:child_process';
 import { unlinkFile } from '../utils/utils.js';
 import axios from 'axios';
 import { response } from 'express';
 import jwt from 'jsonwebtoken'
-import { channels, users } from '../database/schema.js';
+import { channels, users, subscriptions } from '../database/schema.js';
 import { feedback } from '../database/schema.js';
 // const crypto = require('crypto');
 
@@ -20,6 +21,7 @@ import { feedback } from '../database/schema.js';
 // controllers/streamControllers.js
 import WebTorrent from 'webtorrent';
 import { File } from 'megajs';
+import { getFfmpegBinary } from '../services/mediaPipeline.js';
 
 
 
@@ -231,8 +233,6 @@ export async function channelLogin(req, res) {
       process.env.JWT_SECRET_KEY || 'your_fallback_secret_key',
       { expiresIn: '70d' } // Token now expires in 7 days
     );
-
-    console.log("tokentokentokentokentokentoken", token);
 
     // Remove sensitive data before sending response
     const { password: _, ...channelData } = channel;
@@ -474,25 +474,31 @@ export async function channelSubscribe(req, res) {
   console.log("subscribe called", req.body);
 
   try {
-    let { userId, channelId } = req.body;
+    const authenticatedUserId = Number(req.user?.userId);
+    let { channelId } = req.body;
+
+    if (!Number.isInteger(authenticatedUserId) || authenticatedUserId <= 0) {
+      return res.status(401).json({ message: 'Authentication is required' });
+    }
+
+    const userId = authenticatedUserId;
 
     // Validate input exists
-    if (userId === undefined || channelId === undefined) {
+    if (channelId === undefined) {
       return res.status(400).json({ 
-        message: "userId and channelId are required",
-        received: { userId, channelId }
+        message: "channelId is required",
+        received: { channelId }
       });
     }
 
-    // Convert to integer safely
-    userId = parseInt(userId, 10);
+    // Convert the requested channel ID safely; the user ID came from the JWT.
     channelId = parseInt(channelId, 10);
 
     // Validate conversion was successful
-    if (isNaN(userId) || isNaN(channelId) || userId <= 0 || channelId <= 0) {
+    if (isNaN(channelId) || channelId <= 0) {
       return res.status(400).json({ 
-        message: "Invalid userId or channelId. Must be positive integers.",
-        received: { userId: req.body.userId, channelId: req.body.channelId }
+        message: "Invalid channelId. It must be a positive integer.",
+        received: { channelId: req.body.channelId }
       });
     }
 
@@ -538,18 +544,19 @@ export async function channelSubscribe(req, res) {
 export async function channelSubscriptions(req, res) {
   const { userId } = req.params;
 
-  if (!userId) {
-    return res.status(400).json({ message: 'User ID is required' });
-  }
-
   try {
-    const userIdInt = parseInt(userId, 10);
+    const authenticatedUserId = Number(req.user?.userId);
+    const userIdInt = userId === 'me' ? authenticatedUserId : parseInt(userId, 10);
     
-    if (isNaN(userIdInt) || userIdInt <= 0) {
+    if (isNaN(userIdInt) || userIdInt <= 0 || !Number.isInteger(authenticatedUserId)) {
       return res.status(400).json({ 
         message: 'Invalid user ID',
         received: userId 
       });
+    }
+
+    if (userIdInt !== authenticatedUserId) {
+      return res.status(403).json({ message: 'You can only view your own subscriptions' });
     }
 
     console.log('Fetching subscriptions for user:', userIdInt);
@@ -566,6 +573,26 @@ export async function channelSubscriptions(req, res) {
   }
 }
 
+export async function channelSubscriptionStatus(req, res) {
+  const { id: channelId } = req.params;
+
+  if (!channelId) {
+    return res.status(400).json({ message: 'channelId is required' });
+  }
+
+  try {
+    const authenticatedUserId = Number(req.user?.userId);
+    if (!Number.isInteger(authenticatedUserId)) {
+      return res.status(401).json({ message: 'Authentication is required' });
+    }
+    const existing = await Queries.isUserSubscribed(authenticatedUserId, channelId);
+    return res.status(200).json({ subscribed: Boolean(existing?.length) });
+  } catch (error) {
+    console.error('Error checking subscription status:', error);
+    return res.status(500).json({ message: 'Unable to check subscription status' });
+  }
+}
+
 
 /**
  * unsubscribe the channel 
@@ -574,10 +601,15 @@ export async function channelSubscriptions(req, res) {
  */
 
 export async function channelUnSubscribe(req, res) {
-  const { userId, channelId } = req.body;
+  const { channelId } = req.body;
+  const authenticatedUserId = Number(req.user?.userId);
+
+  if (!Number.isInteger(authenticatedUserId)) {
+    return res.status(401).json({ message: 'Authentication is required' });
+  }
 
   // existing 
-  const existing = await Queries.isUserSubscribed(userId, channelId);
+  const existing = await Queries.isUserSubscribed(authenticatedUserId, channelId);
   if (!existing?.length) {
     return res.status(400).json({
       message: 'user not subscribed to the channel'
@@ -1049,6 +1081,7 @@ export const getAdminUploads = async (req, res) => {
       description: uploads.description,
       tags: uploads.tags,
       thumbnail: uploads.thumbnail,
+      views: uploads.views,
       subscription_status: uploads.subscription_status
     })
     .from(uploads)
@@ -1078,6 +1111,144 @@ export const getAdminUploads = async (req, res) => {
       message: 'Internal server error',
       error: error.message
     });
+  }
+};
+
+// Public discovery feed: intentionally does not use subscription state. It
+// lets every viewer discover published videos from every channel.
+export const getDiscoverUploads = async (_req, res) => {
+  try {
+    const discovered = await db
+      .select({
+        id: uploads.id,
+        admin_id: uploads.admin_id,
+        title: uploads.title,
+        input_link: uploads.input_link,
+        output_link: uploads.output_link,
+        language: uploads.language,
+        description: uploads.description,
+        tags: uploads.tags,
+        thumbnail: uploads.thumbnail,
+        views: uploads.views,
+        createdAt: uploads.createdAt,
+        channel_name: channels.name,
+        channel_username: channels.username,
+      })
+      .from(uploads)
+      .leftJoin(channels, eq(uploads.admin_id, channels.id))
+      .orderBy(desc(uploads.createdAt), desc(uploads.id))
+      .limit(100);
+
+    return res.status(200).json({
+      success: true,
+      data: discovered.map((upload) => ({
+        ...upload,
+        thumbnail: upload.thumbnail
+          ? (upload.thumbnail.startsWith('data:') ? upload.thumbnail : `data:image/jpeg;base64,${upload.thumbnail}`)
+          : null,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching discovery uploads:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load discovery videos' });
+  }
+};
+
+const historyItemFromRequest = (body = {}) => ({
+  contentKey: typeof body.contentKey === 'string' ? body.contentKey.trim() : '',
+  uploadId: Number.isInteger(Number(body.uploadId)) && Number(body.uploadId) > 0 ? Number(body.uploadId) : null,
+  title: typeof body.title === 'string' ? body.title.trim().slice(0, 255) : '',
+  thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail : null,
+  inputLink: typeof body.input_link === 'string' ? body.input_link : typeof body.inputLink === 'string' ? body.inputLink : null,
+  outputLink: typeof body.output_link === 'string' ? body.output_link : typeof body.outputLink === 'string' ? body.outputLink : null,
+  description: typeof body.description === 'string' ? body.description : null,
+  language: typeof body.language === 'string' ? body.language.slice(0, 50) : null,
+});
+
+export const saveWatchHistory = async (req, res) => {
+  const userId = Number(req.user?.userId);
+  const item = historyItemFromRequest(req.body);
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(401).json({ message: 'Authentication required' });
+  if (!item.contentKey || !item.title) return res.status(400).json({ message: 'A video identifier and title are required' });
+
+  try {
+    const [saved] = await db.insert(watchHistory).values({ userId, ...item, watchedAt: new Date().toISOString() })
+      .onConflictDoUpdate({
+        target: [watchHistory.userId, watchHistory.contentKey],
+        set: { ...item, watchedAt: new Date().toISOString() },
+      })
+      .returning();
+    return res.status(201).json({ history: saved });
+  } catch (error) {
+    console.error('Error saving watch history:', error);
+    return res.status(500).json({ message: 'Unable to save watch history' });
+  }
+};
+
+export const getWatchHistory = async (req, res) => {
+  const userId = Number(req.user?.userId);
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(401).json({ message: 'Authentication required' });
+  try {
+    const history = await db.select({
+      id: watchHistory.id, userId: watchHistory.userId, uploadId: watchHistory.uploadId,
+      contentKey: watchHistory.contentKey, title: watchHistory.title,
+      thumbnail: sql`COALESCE(NULLIF(${watchHistory.thumbnail}, ''), ${uploads.thumbnail})`,
+      inputLink: watchHistory.inputLink, outputLink: watchHistory.outputLink,
+      description: watchHistory.description, language: watchHistory.language, watchedAt: watchHistory.watchedAt,
+    }).from(watchHistory)
+      .leftJoin(uploads, eq(watchHistory.uploadId, uploads.id))
+      .where(eq(watchHistory.userId, userId))
+      .orderBy(desc(watchHistory.watchedAt))
+      .limit(100);
+    return res.json({ history: history.map((item) => ({
+      ...item,
+      thumbnail: item.thumbnail
+        ? (String(item.thumbnail).startsWith('data:') ? item.thumbnail : `data:image/jpeg;base64,${item.thumbnail}`)
+        : null,
+      historyId: item.id,
+      id: item.uploadId ?? item.contentKey,
+      upload_id: item.uploadId,
+    })) });
+  } catch (error) {
+    console.error('Error loading watch history:', error);
+    return res.status(500).json({ message: 'Unable to load watch history' });
+  }
+};
+
+export const deleteWatchHistory = async (req, res) => {
+  const userId = Number(req.user?.userId);
+  const historyId = Number(req.params.id);
+  if (!Number.isInteger(userId) || !Number.isInteger(historyId)) return res.status(400).json({ message: 'Invalid history item' });
+  try {
+    const deleted = await db.delete(watchHistory).where(and(eq(watchHistory.id, historyId), eq(watchHistory.userId, userId))).returning({ id: watchHistory.id });
+    if (!deleted.length) return res.status(404).json({ message: 'History item not found' });
+    return res.sendStatus(204);
+  } catch (error) {
+    console.error('Error deleting watch history:', error);
+    return res.status(500).json({ message: 'Unable to delete history item' });
+  }
+};
+
+// Count a view only after the mobile player has actually started playback.
+// The atomic increment prevents lost updates when many viewers start together.
+export const incrementUploadView = async (req, res) => {
+  const uploadId = Number(req.params.id);
+  if (!Number.isInteger(uploadId) || uploadId <= 0) {
+    return res.status(400).json({ message: 'Invalid upload ID' });
+  }
+
+  try {
+    const [updated] = await db
+      .update(uploads)
+      .set({ views: sql`COALESCE(${uploads.views}, 0) + 1` })
+      .where(eq(uploads.id, uploadId))
+      .returning({ id: uploads.id, views: uploads.views });
+
+    if (!updated) return res.status(404).json({ message: 'Upload not found' });
+    return res.status(200).json({ uploadId: updated.id, views: updated.views });
+  } catch (error) {
+    console.error('Error recording upload view:', error);
+    return res.status(500).json({ message: 'Unable to record view' });
   }
 };
 
@@ -1276,7 +1447,18 @@ export async function newUpdatePassword(req, res) {
 export async function getAllChannels(req, res) {
   try {
     const allChannels = await Queries.getAllChannels();
-    res.status(200).json(allChannels);
+    const channelsWithSubscribers = await Promise.all((allChannels || []).map(async (channel) => {
+      const [{ subscriberCount }] = await db
+        .select({ subscriberCount: sql`count(*)::int` })
+        .from(subscriptions)
+        .where(eq(subscriptions.channelId, channel.id));
+      return {
+        ...channel,
+        profile_image: channel.profile_image,
+        subscriberCount: subscriberCount || 0,
+      };
+    }));
+    res.status(200).json(channelsWithSubscribers);
   } catch (error) {
     console.error('Error in getAllChannels:', error);
     res.status(500).json({ message: 'Internal server error', error: error.message });
@@ -1359,7 +1541,16 @@ export const getChannelById = async (req, res) => {
 
     if (!channel) return res.status(404).json({ message: 'Channel not found' });
 
-    res.status(200).json(channel);
+    const [{ subscriberCount }] = await db
+      .select({ subscriberCount: sql`count(*)::int` })
+      .from(subscriptions)
+      .where(eq(subscriptions.channelId, id));
+
+    res.status(200).json({
+      ...channel,
+      profile_image: channel.profile_image,
+      subscriberCount: subscriberCount || 0,
+    });
   } catch (err) {
     console.error('Error in getChannelById:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -1383,8 +1574,24 @@ export async function getChannelProfile(req, res) {
 
     if (!channel) return res.status(404).json({ message: 'Channel not found' });
 
+    const [{ subscriberCount }] = await db
+      .select({ subscriberCount: sql`count(*)::int` })
+      .from(subscriptions)
+      .where(eq(subscriptions.channelId, channel.id));
+    const [{ totalViews }] = await db
+      .select({ totalViews: sql`COALESCE(SUM(${uploads.views}), 0)::int` })
+      .from(uploads)
+      .where(eq(uploads.admin_id, channel.id));
+
     const { password, otp, ...safeData } = channel;
-    res.status(200).json({ user: safeData });
+    res.status(200).json({
+      user: {
+        ...safeData,
+        profile_image: safeData.profile_image,
+        subscriberCount: subscriberCount || 0,
+        totalViews: totalViews || 0,
+      },
+    });
     console.log('Safe data sent to frontend:', safeData);
 
   } catch (error) {
@@ -1479,16 +1686,19 @@ export const handleUpdateUpload = async (req, res) => {
     const token = req.header('Authorization');
     const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
 
-    // Build update fields
-    const updateFields = {
-      title: req.body.title,
-      language: req.body.language,
-      title: req.body.description,
-      input_link: req.body.description,
-      tags: req.body.description,
-      description: req.body.description,
-      ...(req.file && { thumbnail: Buffer.isBuffer(req.file.buffer) ? req.file.buffer.toString('base64') : Buffer.from(req.file.buffer).toString('base64') }) // Update thumbnail only if new file, convert to base64
-    };
+    // Only update fields supplied by the edit form. The previous mapping used
+    // `description` for title, input_link, and tags, corrupting the record.
+    const updateFields = {};
+    if (typeof req.body.title === 'string') updateFields.title = req.body.title.trim();
+    if (typeof req.body.language === 'string') updateFields.language = req.body.language.trim();
+    if (typeof req.body.input_link === 'string') updateFields.input_link = req.body.input_link.trim();
+    if (typeof req.body.description === 'string') updateFields.description = req.body.description.trim();
+    if (typeof req.body.tags === 'string') updateFields.tags = req.body.tags.trim();
+    if (req.file?.buffer) updateFields.thumbnail = req.file.buffer.toString('base64');
+
+    if (!Object.keys(updateFields).length) {
+      return res.status(400).json({ success: false, message: 'No changes were provided.' });
+    }
 
     // Perform update
     await db.update(uploads)
@@ -1519,6 +1729,28 @@ export const handleUpdateUpload = async (req, res) => {
 // THe following is the code for Video Steaming
 const client = new WebTorrent();
 const activeTorrents = new Map();
+const STREAMABLE_EXTENSIONS = new Set([
+  'mp4', 'm4v', 'mkv', 'webm', 'mov', 'avi', 'ts', 'm2ts', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'flac',
+]);
+
+const requestBaseUrl = (req) => {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  return `${forwardedProto || req.protocol}://${req.get('host')}`;
+};
+
+const isStreamableFile = (file) => STREAMABLE_EXTENSIONS.has(
+  path.extname(file.name).slice(1).toLowerCase(),
+);
+
+const contentTypeFor = (fileName) => {
+  const extension = path.extname(fileName).slice(1).toLowerCase();
+  return {
+    mp4: 'video/mp4', m4v: 'video/mp4', mkv: 'video/x-matroska', webm: 'video/webm',
+    mov: 'video/quicktime', avi: 'video/x-msvideo', ts: 'video/mp2t', m2ts: 'video/mp2t',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg',
+    opus: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac',
+  }[extension] || 'application/octet-stream';
+};
 
 // Torrent streaming handler
 export const handleTorrentStream = async (req, res) => {
@@ -1590,12 +1822,27 @@ export const handleTorrentStream = async (req, res) => {
       }
     }, 180000); // Increased to 3 minutes
 
-    const processTorrent = () => {    
-      const baseUrl = 'https://unbedraggled-brenna-abatingly.ngrok-free.dev';
-      const streamLinks = torrent.files.map(file => ({
-        fileName: file.name,
-        streamUrl: `${baseUrl}/stream/torrent/${encodeURIComponent(file.name)}`
-      }));
+    const processTorrent = () => {
+      const playableFiles = torrent.files.filter(isStreamableFile);
+      const selectedFile = (playableFiles.length ? playableFiles : torrent.files)
+        .reduce((largest, file) => (!largest || file.length > largest.length ? file : largest), null);
+      if (!selectedFile) {
+        clearTimeout(timeout);
+        return res.status(422).json({ error: 'The torrent contains no streamable files.' });
+      }
+
+      // WebTorrent selects every file by default. Selecting only the requested
+      // video prevents subtitles, samples, and alternate releases from taking
+      // bandwidth away from the opening playback pieces.
+      torrent.files.forEach((file) => file.deselect());
+      selectedFile.select(10);
+
+      const fileIndex = torrent.files.indexOf(selectedFile);
+      const baseUrl = requestBaseUrl(req);
+      const streamLinks = [{
+        fileName: selectedFile.name,
+        streamUrl: `${baseUrl}/stream/torrent/${encodeURIComponent(torrent.infoHash)}/${fileIndex}`,
+      }];
       clearTimeout(timeout);
       res.json({ streamLinks });
     };
@@ -1653,41 +1900,54 @@ export const streamTorrentFile1 = (req, res) => {
 // Streaming a specific torrent file
 // Streaming a specific torrent file
 export const streamTorrentFile = (req, res) => {
-  const { filename } = req.params;
-  const decodedName = decodeURIComponent(filename);
-
-  // Look for a torrent containing a matching file
-  const torrent = client.torrents.find(t =>
-    t.files.some(f => path.basename(f.name) === decodedName)
-  );
+  const { infoHash, fileIndex, filename } = req.params;
+  const decodedName = filename ? decodeURIComponent(filename) : '';
+  const torrent = infoHash
+    ? client.torrents.find((item) => item.infoHash === infoHash)
+    : client.torrents.find((item) => item.files.some((file) => path.basename(file.name) === decodedName));
 
   if (!torrent) return res.status(404).send('Torrent not found.');
 
-  const file = torrent.files.find(f => path.basename(f.name) === decodedName);
+  const index = Number.parseInt(fileIndex, 10);
+  const file = Number.isInteger(index)
+    ? torrent.files[index]
+    : torrent.files.find((item) => path.basename(item.name) === decodedName);
 
   if (!file) return res.status(404).send('File not found in torrent.');
 
   const range = req.headers.range;
   const fileSize = file.length;
+  const MAX_STREAM_CHUNK_BYTES = 4 * 1024 * 1024;
   let stream;
+
+  file.select(10);
 
   if (!range) {
     res.writeHead(200, {
-      'Content-Type': 'video/mp4',
-      'Content-Length': fileSize
+      'Content-Type': contentTypeFor(file.name),
+      'Content-Length': fileSize,
+      'Accept-Ranges': 'bytes',
     });
     stream = file.createReadStream();
   } else {
-    const positions = range.replace(/bytes=/, '').split('-');
-    const start = parseInt(positions[0], 10);
-    const end = positions[1] ? parseInt(positions[1], 10) : fileSize - 1;
+    const positions = range.replace(/^bytes=/, '').split('-', 2);
+    const start = Number.parseInt(positions[0], 10);
+    if (!Number.isInteger(start) || start < 0 || start >= fileSize) {
+      return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+    }
+    const requestedEnd = positions[1] ? Number.parseInt(positions[1], 10) : fileSize - 1;
+    const end = Math.min(
+      Number.isInteger(requestedEnd) ? requestedEnd : fileSize - 1,
+      start + MAX_STREAM_CHUNK_BYTES - 1,
+      fileSize - 1,
+    );
     const chunkSize = end - start + 1;
 
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
-      'Content-Type': 'video/mp4'
+      'Content-Type': contentTypeFor(file.name),
     });
 
     stream = file.createReadStream({ start, end });
@@ -1709,6 +1969,93 @@ export const streamTorrentFile = (req, res) => {
   });
 
   stream.pipe(res);
+};
+
+// Transcode an unsupported torrent codec (for example HEVC/H.265) into the
+// broadly supported H.264/AAC combination. This is requested only after the
+// device decoder has rejected the original direct stream.
+export const transcodeTorrentFile = (req, res) => {
+  try {
+    const { infoHash, fileIndex } = req.params;
+    const torrent = client.torrents.find((item) => item.infoHash === infoHash);
+    const index = Number.parseInt(fileIndex, 10);
+    const file = torrent && Number.isInteger(index) ? torrent.files[index] : null;
+    const ffmpegBinary = getFfmpegBinary();
+
+    if (!torrent || !file) return res.status(404).json({ error: 'Torrent file not found.' });
+    if (!ffmpegBinary) {
+      return res.status(503).json({
+        error: 'This video needs transcoding, but FFmpeg is unavailable on the server.',
+      });
+    }
+
+    file.select(10);
+    const source = file.createReadStream();
+    const transcoder = spawn(ffmpegBinary, [
+      '-hide_banner', '-nostdin', '-loglevel', 'warning',
+      // Torrent files are commonly Matroska/HEVC and may not include useful
+      // timestamps at the start of the stream. Generate them so fragmented
+      // MP4 playback can begin as soon as FFmpeg receives enough pieces.
+      '-fflags', '+genpts', '-probesize', '10M', '-analyzeduration', '10M',
+      '-i', 'pipe:0',
+      '-map', '0:v:0?', '-map', '0:a:0?',
+      // H.264 8-bit 4:2:0 with AAC plays on Android hardware decoders that
+      // reject 10-bit HEVC (including many MediaTek devices).
+      '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'baseline', '-level', '3.1', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+      '-max_muxing_queue_size', '1024',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      '-f', 'mp4', 'pipe:1',
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let stderr = '';
+    let responseStarted = false;
+    const fail = (status, error) => {
+      console.error('Torrent transcoding failed:', { infoHash, fileIndex, error });
+      if (!responseStarted && !res.headersSent) return res.status(status).json({ error });
+      res.destroy();
+    };
+    const beginResponse = () => {
+      if (responseStarted) return;
+      responseStarted = true;
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-store',
+        'Transfer-Encoding': 'chunked',
+      });
+    };
+
+    transcoder.stderr.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-2000);
+    });
+    transcoder.once('error', (error) => fail(500, `Unable to start FFmpeg: ${error.message}`));
+    transcoder.once('exit', (code, signal) => {
+      if (code && code !== 0) fail(422, stderr.trim() || `FFmpeg exited with code ${code}.`);
+      if (signal && !responseStarted) fail(422, stderr.trim() || `FFmpeg was stopped by ${signal}.`);
+    });
+    transcoder.stdout.once('data', (chunk) => {
+      beginResponse();
+      res.write(chunk);
+      transcoder.stdout.pipe(res);
+    });
+
+    source.on('error', (error) => fail(500, `Torrent read failed: ${error.message}`));
+    transcoder.stdin.on('error', (error) => {
+      // FFmpeg closes stdin after a decoding failure; its exit handler returns
+      // the useful stderr message to the client before output starts.
+      if (error.code !== 'EPIPE') fail(500, `FFmpeg input failed: ${error.message}`);
+    });
+    source.pipe(transcoder.stdin);
+    res.on('close', () => {
+      source.destroy();
+      transcoder.kill('SIGTERM');
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown torrent transcoding error.';
+    console.error('Torrent transcode setup failed:', message);
+    if (!res.headersSent) return res.status(500).json({ error: message });
+    res.destroy();
+  }
 };
 
 

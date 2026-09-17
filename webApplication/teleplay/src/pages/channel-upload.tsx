@@ -250,10 +250,10 @@ export default function ChannelUpload({ onUploadSuccess }: ChannelUploadProps) {
               </div>
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800">Upload</h1>
             </div>
-            {/* <button className="bg-[#1a9bd7] text-white px-3 py-2 sm:px-4 sm:py-2 rounded-full flex items-center justify-center sm:justify-start w-full sm:w-auto">
-              <Video className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-              <span className="font-semibold text-sm sm:text-base">Add video</span>
-            </button> */}
+            <a href="https://drive.google.com/" target="_blank" rel="noreferrer" className="bg-[#1a9bd7] text-white px-4 py-2 rounded-full inline-flex items-center justify-center hover:bg-[#1689c0] transition-colors">
+              <Video className="h-5 w-5 mr-2" />
+              <span className="font-semibold">Upload video to Google Drive</span>
+            </a>
           </div>
 
           <form onSubmit={handleSubmit}>

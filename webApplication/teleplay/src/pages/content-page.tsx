@@ -17,6 +17,7 @@ interface UploadItem {
   description: string
   customer_id: number | null
   tags?: string
+  views?: number
 }
 
 interface ContentPageProps {
@@ -219,29 +220,29 @@ export default function ContentPage({ onUploadClick, onEditClick }: ContentPageP
                         <div className="w-full h-full bg-gray-300"></div>
                       )}
                     </div>
-                    <div className="flex-1 p-3 md:p-4 flex flex-col justify-between">
+                    <div className="min-w-0 flex-1 p-3 md:p-4 flex flex-col justify-between">
                       <div>
                         <h3 className="font-medium truncate">{upload.title}</h3>
                         <p className="text-gray-500 text-xs sm:text-sm truncate">{upload.language}</p>
                       </div>
                     </div>
-	                    <div className="flex flex-col justify-between items-end p-3 sm:p-4">
+	                    <div className="w-full sm:w-auto shrink-0 flex flex-row sm:flex-col justify-between items-center sm:items-end gap-3 p-3 sm:p-4 border-t sm:border-t-0">
 	                      <div className="flex items-center">
-	                        <span className="font-semibold mr-1 text-sm sm:text-base">0</span>
+	                        <span className="font-semibold mr-1 text-sm sm:text-base">{upload.views ?? 0}</span>
 	                        <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4" />
 	                      </div>
-	                      <div className="mt-2 flex gap-2">
+	                      <div className="flex flex-1 sm:flex-none gap-2">
 	                        <button
 	                          onClick={() => openView(upload)}
-	                          className="px-3 py-1 text-sm font-medium text-white bg-gray-800 rounded hover:bg-gray-900 transition-colors inline-flex items-center gap-2"
+	                          className="min-h-10 flex-1 sm:flex-none justify-center px-3 py-2 text-sm font-medium text-white bg-gray-800 rounded hover:bg-gray-900 transition-colors inline-flex items-center gap-2"
 	                        >
 	                          <QrCode className="h-4 w-4" />
 	                          View
 	                        </button>
-	                        <Link to = {`channel-upload-edit/?id=${upload.id}`} >
+	                        <Link to = {`channel-upload-edit/?id=${upload.id}`} className="flex-1 sm:flex-none">
 	                          <button
 	                            onClick={() => onEditClicks(upload.id, upload)}
-	                            className="px-3 py-1 text-sm font-medium text-white bg-[#1a9bd7] rounded hover:bg-blue-600 transition-colors"
+	                            className="min-h-10 w-full sm:w-auto px-3 py-2 text-sm font-medium text-white bg-[#1a9bd7] rounded hover:bg-blue-600 transition-colors"
 	                          >
 	                            Edit
 	                          </button>
@@ -335,7 +336,7 @@ export default function ContentPage({ onUploadClick, onEditClick }: ContentPageP
             </div>
 
             {/* Upload Button */}
-            <div className="mt-4 sm:mt-6 md:mt-8 flex-shrink-0 pt-40 ml-8 mr-5">
+            <div className="mt-auto pt-8 flex-shrink-0">
               <button
                 onClick={onUploadClick}
                 className="bg-[#1a9bd7] text-white p-4 sm:p-5 md:p-6 rounded-lg w-full flex flex-col items-center hover:bg-[#1689c0] transition-colors"

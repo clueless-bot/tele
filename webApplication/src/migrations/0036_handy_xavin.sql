@@ -1,0 +1,2 @@
+-- Intentionally empty. The live database already has customer_id/customer_ids
+-- history, and migration 0035_add_upload_views creates the only new column.

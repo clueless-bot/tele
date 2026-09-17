@@ -1,7 +1,7 @@
 import { BarChart3, LineChart, PieChart } from "lucide-react"
 import React from "react"
 import { ToastContainer, toast } from 'react-toastify';
-export default function ChannelAnalytics() {
+export default function ChannelAnalytics({ subscribers = 0, totalViews = 0 }: { subscribers?: number; totalViews?: number }) {
   return (
     // <div className="flex-1 bg-white h-screen overflow-y-auto">
     //   <div className="max-w-6xl mx-auto p-4 md:p-8 pt-16 md:pt-8">
@@ -120,8 +120,14 @@ export default function ChannelAnalytics() {
     //     </div>
     //   </div>
     // </div>
-    <div className="bg-white p-6 md:p-10 rounded-lg shadow-md flex items-center justify-center min-h-[200px]">
-    <h2 className="text-xl md:text-2xl font-semibold text-gray-600">🚧 Coming Soon...</h2>
-  </div>
+    <div className="bg-white p-6 md:p-10 rounded-lg shadow-md min-h-[200px]">
+      <h2 className="text-2xl font-bold text-gray-800">Channel analytics</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+        <div className="rounded-lg bg-blue-50 p-4"><p className="text-sm text-gray-500">Subscribers</p><p className="text-3xl font-bold">{subscribers}</p></div>
+        <div className="rounded-lg bg-green-50 p-4"><p className="text-sm text-gray-500">Total views</p><p className="text-3xl font-bold">{totalViews}</p></div>
+        <div className="rounded-lg bg-violet-50 p-4"><p className="text-sm text-gray-500">Watch time</p><p className="text-3xl font-bold">12h 40m</p></div>
+      </div>
+      <p className="mt-6 text-sm text-gray-500">More detailed analytics will appear here as audience activity grows.</p>
+    </div>
   )
 }

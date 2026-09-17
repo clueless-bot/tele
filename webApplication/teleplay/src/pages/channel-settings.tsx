@@ -14,12 +14,14 @@ interface ChannelProfile {
   // Add other fields if needed
 }
 
+const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%23e5e7eb'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239ca3af'/%3E%3Cpath d='M12 58c2-13 10-20 20-20s18 7 20 20' fill='%239ca3af'/%3E%3C/svg%3E";
+
 export default function ChannelSettings() {
   const [activeTab, setActiveTab] = useState<"profile" | "account">("profile");
   const [profileData, setProfileData] = useState<ChannelProfile | null>(null);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImageUrl, setProfileImageUrl] = useState<string>("");
-  const [profileImageDisplaySrc, setProfileImageDisplaySrc] = useState<string>("/default-avatar.png");
+  const [profileImageDisplaySrc, setProfileImageDisplaySrc] = useState<string>(DEFAULT_AVATAR);
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -29,19 +31,21 @@ export default function ChannelSettings() {
   const baseURL: string = import.meta.env.VITE_BASE_URL || "http://localhost:9898";
 
   const resolveProfileImageSrc = (profileImage: string | undefined) => {
-    if (!profileImage) return "/default-avatar.png";
+    if (!profileImage) return DEFAULT_AVATAR;
     if (profileImage.startsWith("blob:")) return profileImage;
 
-    const cacheBuster = `t=${Date.now()}`;
+    const withCacheBuster = (url: string) => `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
 
     try {
       const url = new URL(profileImage);
-      url.searchParams.set("t", String(Date.now()));
-      return url.toString();
+      if (["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname)) {
+        return withCacheBuster(`${window.location.origin}${baseURL.replace(/\/$/, "")}${url.pathname}`);
+      }
+      return withCacheBuster(url.toString());
     } catch {
-      const url = new URL(profileImage.startsWith("/") ? profileImage : `/${profileImage}`, baseURL);
-      url.search = url.search ? `${url.search}&${cacheBuster}` : `?${cacheBuster}`;
-      return url.toString();
+      const imagePath = profileImage.replace(/^\/+/, "");
+      if (/^https?:\/\//i.test(baseURL)) return withCacheBuster(new URL(`/${imagePath}`, baseURL).toString());
+      return withCacheBuster(`${window.location.origin}${baseURL.replace(/\/$/, "")}/${imagePath}`);
     }
   };
 
@@ -63,7 +67,7 @@ export default function ChannelSettings() {
       const resolved = resolveProfileImageSrc(raw);
 
       if (!raw) {
-        setProfileImageDisplaySrc("/default-avatar.png");
+        setProfileImageDisplaySrc(DEFAULT_AVATAR);
         return;
       }
       if (raw.startsWith("blob:") || raw.startsWith("data:")) {
@@ -277,6 +281,7 @@ export default function ChannelSettings() {
             username: profileData.username,
             user_id: profileData.user_id,
             profile_image: profile_image_url,
+            profileImageVersion: Date.now(),
           },
         })
       );
@@ -354,7 +359,7 @@ export default function ChannelSettings() {
                     src={
                       profileData?.profile_image?.startsWith("blob:")
                         ? profileData.profile_image // Preview (blob)
-                        : profileData?.profile_image || "/default-avatar.png" // Real URL or fallback
+                        : profileData?.profile_image || DEFAULT_AVATAR // Real URL or fallback
                     }
                     alt="Profile"
                     className="w-32 h-32 bg-gray-200 rounded-lg object-cover"
@@ -363,6 +368,7 @@ export default function ChannelSettings() {
   src={profileImageDisplaySrc}
   alt="Profile"
   className="w-32 h-32 bg-gray-200 rounded-lg object-cover"
+  onError={() => setProfileImageDisplaySrc(DEFAULT_AVATAR)}
 />
 
 

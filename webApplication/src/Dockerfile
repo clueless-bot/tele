@@ -2,12 +2,16 @@ FROM node:20.11.1
 
 WORKDIR /usr/src/app
 
-COPY package.json yarn.lock ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN npm i yarn -g --force && yarn
+COPY package.json pnpm-lock.yaml ./
+
+RUN corepack enable && pnpm install --frozen-lockfile --prod
 
 COPY . .
 
 EXPOSE 9898
 
-CMD ["yarn", "start"]
+CMD ["pnpm", "start"]

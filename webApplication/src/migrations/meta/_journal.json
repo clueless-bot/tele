@@ -246,6 +246,34 @@
       "when": 1761985854417,
       "tag": "0034_careful_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789128000000,
+      "tag": "0035_add_upload_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789127312194,
+      "tag": "0036_handy_xavin",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789276800000,
+      "tag": "0037_add_watch_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789207646951,
+      "tag": "0038_nice_black_queen",
+      "breakpoints": true
     }
   ]
 }

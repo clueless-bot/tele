@@ -349,22 +349,25 @@ export default function HomeScreen() {
             </div>
 
             {/* Header */}
-            <div className="mb-10 mt-6 flex items-center justify-center">
-              <img src="/Channelicon.png" alt="Channel Icon" className="h-8 w-8" />
-              <span className="ml-2 text-xl font-medium">
-                {
+            <div className="mb-10 mt-6 flex items-center justify-center gap-3 text-center">
+              <img src="/logo.png" alt="Teleplay" className="h-11 w-11 shrink-0 rounded-xl" />
+              <div className="min-w-0">
+                <div className="text-xl font-bold leading-tight">Teleplay</div>
+                <div className="text-sm font-medium leading-tight text-slate-700">
                   {
-                    home: "Channel",
-                    login: "Login Account",
-                    "create-account": "Create Account",
-                    "email-verification": "Verify Email",
-                    "create-channel": "Create Channel",
-                    "forgot-password": "Forgot Password!",
-                    "forgot-password-otp": "Forget Password!",
-                    "reset-password": "Forget Password!",
-                  }[currentScreen]
-                }
-              </span>
+                    {
+                      home: "Channel",
+                      login: "Login Account",
+                      "create-account": "Create Account",
+                      "email-verification": "Verify Email",
+                      "create-channel": "Create Channel",
+                      "forgot-password": "Forgot Password!",
+                      "forgot-password-otp": "Forget Password!",
+                      "reset-password": "Forget Password!",
+                    }[currentScreen]
+                  }
+                </div>
+              </div>
             </div>
 
             {/* Home Screen */}

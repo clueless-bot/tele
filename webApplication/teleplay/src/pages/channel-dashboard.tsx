@@ -31,8 +31,13 @@ interface ChannelProfileType {
   username?: string;
   user_id?: string;
   profile_image?: string;
+  profileImageVersion?: number;
+  subscriberCount?: number;
+  totalViews?: number;
   // Add more fields if needed
 }
+
+const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%23e5e7eb'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239ca3af'/%3E%3Cpath d='M12 58c2-13 10-20 20-20s18 7 20 20' fill='%239ca3af'/%3E%3C/svg%3E";
 
 // Add onSignOut prop to the component
 export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void } = {}) {
@@ -82,24 +87,27 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
 
   // Channel profile state
   const [channelProfile, setChannelProfile] = useState<ChannelProfileType | null>(null);
-  const [profileImageDisplaySrc, setProfileImageDisplaySrc] = useState<string>("/default-avatar.png");
+  const [profileImageDisplaySrc, setProfileImageDisplaySrc] = useState<string>(DEFAULT_AVATAR);
+  const [profileImageVersion, setProfileImageVersion] = useState(0);
   console.log(channelProfile?.profile_image)
 
   const baseURL: string = import.meta.env.VITE_BASE_URL || "http://localhost:9898";
   const resolveProfileImageSrc = (profileImage: string | undefined) => {
-    if (!profileImage) return "/default-avatar.png";
+    if (!profileImage) return DEFAULT_AVATAR;
     if (profileImage.startsWith("blob:")) return profileImage;
 
-    const cacheBuster = `t=${Date.now()}`;
+    const withCacheBuster = (url: string) => `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
 
     try {
       const url = new URL(profileImage);
-      url.searchParams.set("t", String(Date.now()));
-      return url.toString();
+      if (["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname)) {
+        return withCacheBuster(`${window.location.origin}${baseURL.replace(/\/$/, "")}${url.pathname}`);
+      }
+      return withCacheBuster(url.toString());
     } catch {
-      const url = new URL(profileImage.startsWith("/") ? profileImage : `/${profileImage}`, baseURL);
-      url.search = url.search ? `${url.search}&${cacheBuster}` : `?${cacheBuster}`;
-      return url.toString();
+      const imagePath = profileImage.replace(/^\/+/, "");
+      if (/^https?:\/\//i.test(baseURL)) return withCacheBuster(new URL(`/${imagePath}`, baseURL).toString());
+      return withCacheBuster(`${window.location.origin}${baseURL.replace(/\/$/, "")}/${imagePath}`);
     }
   };
 
@@ -121,7 +129,7 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
       const resolved = resolveProfileImageSrc(raw);
 
       if (!raw) {
-        setProfileImageDisplaySrc("/default-avatar.png");
+        setProfileImageDisplaySrc(DEFAULT_AVATAR);
         return;
       }
       if (raw.startsWith("blob:") || raw.startsWith("data:")) {
@@ -158,13 +166,14 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
       cancelled = true;
       if (objectUrlToRevoke) URL.revokeObjectURL(objectUrlToRevoke);
     };
-  }, [channelProfile?.profile_image, baseURL]);
+  }, [channelProfile?.profile_image, profileImageVersion, baseURL]);
 
   useEffect(() => {
     const handler = (e: Event) => {
       const customEvent = e as CustomEvent<Partial<ChannelProfileType>>;
       if (!customEvent.detail) return;
       setChannelProfile((prev) => ({ ...(prev || {}), ...customEvent.detail }));
+      setProfileImageVersion(customEvent.detail.profileImageVersion || Date.now());
     };
 
     window.addEventListener("teleplay:profile-updated", handler);
@@ -400,6 +409,7 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
                     src={profileImageDisplaySrc}
                     alt="Profile"
                     className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg"
+                    onError={() => setProfileImageDisplaySrc(DEFAULT_AVATAR)}
                   />
                 </div>
                 {/* <div className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold">
@@ -504,7 +514,7 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
         </button>
 
         {activeTab === "analytics" ? (
-          <ChannelAnalytics />
+          <ChannelAnalytics subscribers={channelProfile?.subscriberCount ?? 0} totalViews={channelProfile?.totalViews ?? 0} />
         ) : activeTab === "content" ? (
           <ContentPage onUploadClick={handleUploadClick} />
         ) : activeTab === "earn" ? (
@@ -621,9 +631,9 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
                   </div>
 
                   {/* Right content (1/3 on large screens) */}
-                  <div className="mt-6 lg:mt-0 bg-[#f9f9f9] w-full h-full ">
+                  <div className="mt-6 lg:mt-0 bg-[#f9f9f9] w-full h-full flex flex-col p-5">
                     {/* Traffic Source */}
-                    <div className="mt-6 lg:mt-0 bg-[#f9f9f9] w-full h-full">
+                    <div className="w-full flex flex-col flex-1">
                       {/* <h2 className="text-lg md:text-xl font-semibold mb-4">Traffic source</h2> */}
 
                       {/* <div className="space-y-4">
@@ -648,8 +658,39 @@ export default function ChannelDashboard({ onSignOut }: { onSignOut?: () => void
                           </div>
                         ))}
                       </div> */}
+                      <div className="rounded-xl bg-white p-4 shadow-sm mb-4">
+                        <p className="text-sm text-gray-500">Subscribers</p>
+                        <p className="text-3xl font-bold text-gray-800">{channelProfile?.subscriberCount ?? 0}</p>
+                      </div>
+                      <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
+                        <div className="flex justify-between"><span className="text-gray-600">Total views</span><strong>{channelProfile?.totalViews ?? 0}</strong></div>
+                        <div className="flex justify-between"><span className="text-gray-600">Watch time</span><strong>12h 40m</strong></div>
+                        <div className="flex justify-between"><span className="text-gray-600">Engagement</span><strong>8.4%</strong></div>
+                      </div>
+                      <div className="mt-4 rounded-xl bg-white p-4 shadow-sm">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-semibold text-gray-800">Views this week</h3>
+                          <span className="text-xs text-green-600">+12.5%</span>
+                        </div>
+                        <div className="h-24 flex items-end gap-2" aria-label="Dummy weekly views chart">
+                          {[35, 52, 44, 68, 56, 82, 72].map((height, index) => (
+                            <div key={index} className="flex-1 flex flex-col items-center gap-1">
+                              <div className="w-full rounded-t bg-[#1a9bd7]" style={{ height: `${height}%` }} />
+                              <span className="text-[10px] text-gray-400">{['M', 'T', 'W', 'T', 'F', 'S', 'S'][index]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-xl bg-white p-4 shadow-sm">
+                        <h3 className="font-semibold text-gray-800 mb-3">Audience sources</h3>
+                        <div className="space-y-2 text-sm">
+                          <div><div className="flex justify-between"><span>Mobile app</span><span>64%</span></div><div className="h-2 mt-1 bg-gray-100 rounded"><div className="h-2 bg-[#1a9bd7] rounded" style={{ width: '64%' }} /></div></div>
+                          <div><div className="flex justify-between"><span>Shared links</span><span>24%</span></div><div className="h-2 mt-1 bg-gray-100 rounded"><div className="h-2 bg-[#55c1eb] rounded" style={{ width: '24%' }} /></div></div>
+                          <div><div className="flex justify-between"><span>Search</span><span>12%</span></div><div className="h-2 mt-1 bg-gray-100 rounded"><div className="h-2 bg-[#9bdcf2] rounded" style={{ width: '12%' }} /></div></div>
+                        </div>
+                      </div>
                       {/* Upload Button */}
-                      <div className="mt-4 sm:mt-6 md:mt-8 flex-shrink-0 pt-40 ml-8 mr-5">
+                      <div className="mt-auto pt-8 flex-shrink-0">
                         <button
                           onClick={handleUploadClick}
                           className="bg-[#1a9bd7] text-white p-4 sm:p-5 md:p-6 rounded-lg w-full flex flex-col items-center hover:bg-[#1689c0] transition-colors"

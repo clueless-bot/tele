@@ -22,6 +22,7 @@ import {
   getAllChannels,
   searchChannels,
   channelSubscriptions,
+  channelSubscriptionStatus,
   getChannelById,
   getChannelProfile,
   updateChannelProfile,
@@ -31,6 +32,7 @@ import {
   generateQRCode,
   handleTorrentStream,
   streamTorrentFile,
+  transcodeTorrentFile,
   handleGoogleDrive,
   handleDropbox,
   handlePCloud,
@@ -60,10 +62,12 @@ import {
 
 import upload from './utils/multerConfig.js'; // ✅ new multer import
 
-import { getAdminUploads } from './controller/channel.js';
+import { getAdminUploads, getDiscoverUploads, incrementUploadView, saveWatchHistory, getWatchHistory, deleteWatchHistory } from './controller/channel.js';
 import { submitFeedback } from "./controller/channel.js";
 import db from './database/config.js';
 import { uploads } from './database/schema.js';
+import { getMediaJob, resolveCloudMedia } from './services/mediaPipeline.js';
+import authorization from './middleware/auth.js';
 
 const router = express.Router();
 
@@ -101,6 +105,35 @@ router.get("/.well-known/assetlinks.json", (req, res) => {
 
 router.get('/health', (req, res) => res.sendStatus(200));
 
+const requestBaseUrl = (req) => {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol;
+  return `${protocol}://${req.get('host')}`;
+};
+
+router.post('/media/resolve', async (req, res) => {
+  const link = typeof req.body?.link === 'string' ? req.body.link.trim() : '';
+  if (!link || link.startsWith('magnet:')) {
+    return res.status(400).json({ error: 'A cloud HTTP media link is required' });
+  }
+
+  try {
+    const result = await resolveCloudMedia(link, requestBaseUrl(req));
+    return res.status(result.status === 'error' ? 422 : 200).json(result);
+  } catch (error) {
+    console.error('Media resolution failed:', error.message);
+    return res.status(422).json({ error: error.message || 'Unable to prepare media' });
+  }
+});
+
+router.get('/media/jobs/:jobId/status', async (req, res) => {
+  if (!/^[a-f0-9]{24}$/.test(req.params.jobId)) {
+    return res.status(400).json({ error: 'Invalid media job' });
+  }
+  const result = await getMediaJob(req.params.jobId, requestBaseUrl(req));
+  return res.status(result.status === 'missing' ? 404 : 200).json(result);
+});
+
 router.post('/user/register', registerNewUser);
 router.post('/user/login', login);
 router.post('/user/google-signin', googleSignIn); // Google OAuth for mobile app
@@ -128,11 +161,13 @@ router.get("/s/:code", async (req, res) => {
     const result = await db
       .select({
         id: uploads.id,
+        channelId: uploads.admin_id,
         inputLink: uploads.input_link,
         outputLink: uploads.output_link,
         title: uploads.title,
         description: uploads.description,
         language: uploads.language,
+        thumbnail: uploads.thumbnail,
       })
       .from(uploads)
       .where(like(uploads.output_link, `%${code}%`))
@@ -150,9 +185,13 @@ router.get("/s/:code", async (req, res) => {
       return res.status(200).json({
         code,
         uploadId: record.id,
+        channelId: record.channelId,
         title,
         description: record.description || null,
         language: record.language || null,
+        thumbnail: record.thumbnail
+          ? (record.thumbnail.startsWith('data:') ? record.thumbnail : `data:image/jpeg;base64,${record.thumbnail}`)
+          : null,
         inputLink: record.inputLink || null,
         outputLink: record.outputLink || null,
       });
@@ -237,12 +276,18 @@ router.delete('/content/:uid', handleDeleteContent);
 router.post('/channel/create', createNewChannel);
 router.post('/channel/login', channelLogin);
 router.get('/channel/all', getAllChannels);
-router.post('/channel/subscribe', channelSubscribe);
-router.post('/channel/unsubscribe', channelUnSubscribe);
+router.get('/channel/:id/isSubscribed', authorization, channelSubscriptionStatus);
+router.post('/channel/subscribe', authorization, channelSubscribe);
+router.post('/channel/unsubscribe', authorization, channelUnSubscribe);
 router.post('/channel/forgotpassword', forgotPassword);
 router.post('/otpVerification', verifyOtp);
 router.patch('/updatePassword', updatePassword);
 router.get('/admin/uploads', getAdminUploads);
+router.get('/discover/uploads', getDiscoverUploads);
+router.get('/watch-history', authorization, getWatchHistory);
+router.post('/watch-history', authorization, saveWatchHistory);
+router.delete('/watch-history/:id', authorization, deleteWatchHistory);
+router.post('/uploads/:id/view', incrementUploadView);
 router.post('/admin/sub', handleSubscription);
 router.post('/admin/desub', handleDesub);
 router.post("/channel/feedback", submitFeedback);
@@ -255,7 +300,7 @@ router.get("/channel/search", searchChannels);
 //  get channel by there id
 router.get('/channel/:id', getChannelById);
 // routes/channel.js (or wherever your routes are defined)
-router.get('/channel/subscriptions/:userId', channelSubscriptions);
+router.get('/channel/subscriptions/:userId', authorization, channelSubscriptions);
 
 // OTP
 router.post('/sendOTP', sendOtp); // ✅ POST, 
@@ -369,7 +414,10 @@ router.all('/stream', async (req, res) => {
   }
 });
 
-// Torrent file streaming
+// Torrent file streaming. The info hash plus file index avoids collisions
+// between different torrents that contain files with the same name.
+router.get('/stream/torrent/:infoHash/:fileIndex', streamTorrentFile);
+router.get('/stream/torrent/:infoHash/:fileIndex/transcode', transcodeTorrentFile);
 router.get('/stream/torrent/:filename', streamTorrentFile);
 
 

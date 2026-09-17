@@ -399,45 +399,51 @@ export default class Queries {
 // this is for search channels and uploads
 	static async searchChannels(query) {
 	  try {
-	    const searchTerm = `%${query.trim()}%`;
+      const normalizedQuery = query.trim();
+	    const searchTerm = `%${normalizedQuery}%`;
 
-	    // Fetch channels joined with uploads
-	    const rows = await db
+      // Keep channel matches separate from upload matches. Joining first would
+      // turn one channel-name match into every upload on that channel.
+      const matchedChannels = await db
 	      .select({
 	        channel_id: channels.id,
 	        channel_name: channels.name,
 	        username: channels.username,
 	        profile_image: channels.profile_image,
-	        upload_id: uploads.id,
-	        title: uploads.title,
-	        description: uploads.description,
-	        input_link: uploads.input_link,
-	        // thumbnail: uploads.thumbnail,
-	        tags: uploads.tags,
+	      })
+        .from(channels)
+        .where(
+          or(
+            ilike(channels.name, searchTerm),
+            ilike(channels.username, searchTerm),
+          ),
+        );
+
+      const matchedUploads = await db
+        .select({
+          channel_id: channels.id,
+          channel_name: channels.name,
+          username: channels.username,
+          profile_image: channels.profile_image,
+          upload_id: uploads.id,
+          title: uploads.title,
+          description: uploads.description,
+          input_link: uploads.input_link,
+          tags: uploads.tags,
 	      })
       .from(channels)
-      .leftJoin(uploads, eq(uploads.admin_id, channels.id))
+      .innerJoin(uploads, eq(uploads.admin_id, channels.id))
       .where(
         or(
-          ilike(channels.name, searchTerm),
-          ilike(channels.username, searchTerm),
           ilike(uploads.title, searchTerm),
-          ilike(uploads.description, searchTerm),
-          ilike(uploads.tags, searchTerm)
-        )
-      )
-      .groupBy(channels.id, uploads.id);
+          ilike(uploads.tags, searchTerm),
+        ),
+      );
 
-    // Add source in JS
-    const results = rows.map(row => {
-      const isChannelMatch =
-        row.channel_name.toLowerCase().includes(query.toLowerCase()) ||
-        (row.username || '').toLowerCase().includes(query.toLowerCase());
-      return {
-        ...row,
-        source: isChannelMatch ? 'channel' : 'upload',
-      };
-    });
+      const results = [
+        ...matchedChannels.map((row) => ({ ...row, source: 'channel' })),
+        ...matchedUploads.map((row) => ({ ...row, source: 'upload' })),
+      ];
 
     console.log("Search results:", results);
     return results;

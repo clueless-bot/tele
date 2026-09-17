@@ -1,0 +1,2 @@
+ALTER TABLE "uploads"
+ADD COLUMN IF NOT EXISTS "views" integer NOT NULL DEFAULT 0;
